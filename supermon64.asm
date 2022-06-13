@@ -18,23 +18,39 @@
 ; any errors. Sadly Jim isn't around to ask anymore. If you spot any
 ; misunderstanings or errors in my comments, please report them.
 
+.WEAK
+KIM1    = 0
+C64     = 0
+.ENDWEAK
+
 ; -----------------------------------------------------------------------------
 ; temporary pointers
 TMP0    = $C1               ; used to return input, often holds end address
 TMP2    = $C3               ; usually holds start address
+NDX     = $C6               ; number of characters in keyboard buffer
 
 ; -----------------------------------------------------------------------------
 ; kernal variables
+.ifne C64
+
 SATUS   = $90               ; kernal i/o status word
 FNLEN   = $B7               ; length of current filename
 SADD    = $B9               ; current secondary address (official name SA)
 FA      = $BA               ; current device number
 FNADR   = $BB               ; pointer to current filename
-NDX     = $C6               ; number of characters in keyboard buffer
-KEYD    = $0277             ; keyboard buffer
 BKVEC   = $0316             ; BRK instruction vector (official name CBINV)
 
+.endif
+
+.ifne C64
+KEYD    = $0277             ; keyboard buffer
         *= $0100            ; store variables in tape error buffer
+
+.else
+KEYD    = $00D0             ; keyboard buffer
+        *= $0002            ; KIM has zero page space available
+.endif
+
 
 ; -----------------------------------------------------------------------------
 ; variables
@@ -76,6 +92,8 @@ U9F     .FILL 1             ; index into assembler work buffer
 
 ; -----------------------------------------------------------------------------
 ; kernal entry points
+
+.ifne C64
 SETMSG  = $FF90             ; set kernel message control flag
 SECOND  = $FF93             ; set secondary address after LISTEN
 TKSA    = $FF96             ; send secondary address after TALK
@@ -89,24 +107,35 @@ UNTLK   = $FFAB             ; command serial bus device to UNTALK
 UNLSN   = $FFAE             ; command serial bus device to UNLISTEN
 CHKIN   = $FFC6             ; define input channel
 CLRCHN  = $FFCC             ; restore default devices
-INPUT   = $FFCF             ; input a character (official name CHRIN)
-CHROUT  = $FFD2             ; output a character
 LOAD    = $FFD5             ; load from device
 SAVE    = $FFD8             ; save to device
 STOP    = $FFE1             ; check the STOP key
 GETIN   = $FFE4             ; get a character
+INPUT   = $FFCF             ; input a character (official name CHRIN)
+CHROUT  = $FFD2             ; output a character
+
+.endif
+
+.ifne KIM1
+INPUT   = $0000             ; input a character (official name CHRIN)
+CHROUT = $0000             ; output a character
+.endif
+
 
 ; -----------------------------------------------------------------------------
 ; set up origin
 
+.ifne C64
         .WEAK
 ORG     = $9519
         .ENDWEAK
-
+.else
 *       = ORG
+.endif
 
 ; -----------------------------------------------------------------------------
 ; initial entry point
+
 SUPER   LDY #MSG4-MSGBAS    ; display "..SYS "
         JSR SNDMSG
         LDA SUPAD           ; store entry point address in tmp0
@@ -119,12 +148,14 @@ SUPER   LDY #MSG4-MSGBAS    ; display "..SYS "
         LDY #3
         JSR NMPRNT          ; print entry point address
         JSR CRLF
+.ifne C64
         LDA LINKAD          ; set BRK vector
         STA BKVEC
         LDA LINKAD+1
         STA BKVEC+1
         LDA #$80            ; disable kernel control messages
         JSR SETMSG          ; and enable error messages
+.endif
         BRK
 
 ; -----------------------------------------------------------------------------
@@ -202,7 +233,11 @@ S2      CPX #$13            ; last 3 commands in table are load/save/validate
         PHA
         JMP GETPAR          ; get the first parameter for the command
 LSV     STA SAVY            ; handle load/save/validate
+.ifne C64
         JMP LD
+.else
+        JMP STRT
+.endif
 CNVLNK  JMP CONVRT          ; handle base conversion
 
 ; -----------------------------------------------------------------------------
@@ -225,8 +260,11 @@ DSPM01  LSR TMP0+1
         ROR TMP0
         DEX 
         BNE DSPM01
-DSPBYT  JSR STOP            ; check for stop key
+DSPBYT  
+.ifne C64
+        JSR STOP            ; check for stop key
         BEQ DSPMX           ; exit early if pressed
+.endif        
         JSR DISPMEM         ; display 1 line containing 8 bytes
         LDA #8              ; increase start address by 8 bytes
         JSR BUMPAD2
@@ -368,8 +406,11 @@ TDOWN   LDA STASH,X         ; TMP2 = source end (STASH)
         STA UPFLG
 COMPAR1 JSR CRLF            ; new line
         LDY #0              ; no offset from pointer
-TCLOOP  JSR STOP            ; check for stop key
+TCLOOP  
+.ifne C64
+        JSR STOP            ; check for stop key
         BEQ TEXIT           ; exit if pressed
+.endif
         LDA (TMP2),Y        ; load byte from source
         BIT SAVY            ; transfer or compare?
         BPL COMPAR2         ; skip store if comparing
@@ -428,14 +469,18 @@ HLP3    LDA (TMP2),Y        ; get first byte in haystack
         CPY SAVY            ; have we reached the end of the needle?
         BNE HLP3            ; if not, keep comparing bytes
         JSR SHOWAD          ; match found, show address
-HNOFT   JSR STOP            ; no match, check for stop key
+HNOFT  
+.ifne C64
+        JSR STOP            ; no match, check for stop key
         BEQ HEXIT           ; exit prematurely if pressed
+.endif
         JSR ADDA2           ; increment haystack pointer
         JSR SUB13           ; decrement haystack length
         BCS HSCAN           ; still more haystack? keep searching
 HEXIT   JMP STRT            ; back to main loop
 HERROR  JMP ERROR           ; handle error
 
+.ifne C64
 ; -----------------------------------------------------------------------------
 ; load, save, or verify [LSV]
 LD      LDY #1              ; default to reading from tape, device #1
@@ -509,6 +554,7 @@ LDADDR  LDX TMP2            ; load address low byte in X
         LDA #0              ; 0 in A signals load
         STA SADD            ; secondary addr 0 means load to addr in X and Y
         BEQ LSHORT          ; execute load
+.endif
 
 ; -----------------------------------------------------------------------------
 ; fill memory [F]
@@ -521,8 +567,10 @@ FILL    JSR GETDIF          ; start in TMP2, end in STASH, length in STORE
         LDY #0              ; no offset
 FILLP   LDA TMP0            ; load value to fill in accumulator
         STA (TMP2),Y        ; store fill value in current address
+.ifne C64
         JSR STOP            ; check for stop key
         BEQ FSTART          ; if pressed, back to main loop
+.endif
         JSR ADDA2           ; increment address
         JSR SUB13           ; decrement length
         BCS FILLP           ; keep going until length reaches 0
@@ -732,8 +780,10 @@ DIS0AD  LDA #$14            ; disassemble 14 bytes by default
 DIS2AD  JSR SUB12           ; calculate number of bytes between start and end
         BCC DERROR          ; error if end address is before start address
 DISGO   JSR CLINE           ; clear the current line
+.ifne C64        
         JSR STOP            ; check for stop key
         BEQ DISEXIT         ; exit early if pressed
+.endif        
         JSR DSOUT1          ; output disassembly prefix ". "
         INC LENGTH
         LDA LENGTH          ; add length of last instruction to start address
@@ -1259,6 +1309,7 @@ ZERSUP  DEX                 ; decrement number of leading zeros
 
 ; -----------------------------------------------------------------------------
 ; disk status/command [@]
+.ifne C64
 DSTAT   BNE CHGDEV          ; if device address was given, use it
         LDX #8              ; otherwise, default to 8
         .BYTE $2C           ; absolute BIT opcode consumes next word (LDX TMP0)
@@ -1367,6 +1418,7 @@ DREXIT  JSR UNTLK           ; command device to untalk
         JSR SECOND
         JSR UNLSN           ; command device to unlisten
         JMP STRT            ; back to mainloop
+.endif
 
 ; -----------------------------------------------------------------------------
 ; print and clear routines
@@ -1528,7 +1580,12 @@ KEYTOP  =*
 ; vectors corresponding to commands above
 KADDR   .WORD ASSEM-1,COMPAR-1,DISASS-1,FILL-1
         .WORD GOTO-1,HUNT-1,JSUB-1,DSPLYM-1
-        .WORD DSPLYR-1,TRANS-1,EXIT-1,DSTAT-1
+        .WORD DSPLYR-1,TRANS-1,EXIT-1
+.ifne C64
+        .WORD DSTAT-1
+.else
+        .WORD STRT-1
+.endif
         .WORD ASSEM-1,ALTM-1,ALTR-1
 
 ; -----------------------------------------------------------------------------
