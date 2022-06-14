@@ -117,8 +117,8 @@ CHROUT  = $FFD2             ; output a character
 .endif
 
 .ifne KIM1
-INPUT   = $0000             ; input a character (official name CHRIN)
-CHROUT = $0000             ; output a character
+INPUT   = $1E5A             ; input a character (official name CHRIN)
+CHROUT  = $1EA0             ; output a character
 .endif
 
 
@@ -130,7 +130,7 @@ CHROUT = $0000             ; output a character
 ORG     = $9519
         .ENDWEAK
 .else
-*       = ORG
+*       = $9000
 .endif
 
 ; -----------------------------------------------------------------------------
